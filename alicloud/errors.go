@@ -55,6 +55,8 @@ var OtsTableIsTemporarilyUnavailable = []string{"no such host", "OTSServerBusy",
 	"OTSTimeout", "OTSServerUnavailable", "OTSRowOperationConflict", "OTSTableNotReady", "OTSNotEnoughCapacityUnit", "Too frequent table operations."}
 
 var OtsTunnelIsTemporarilyUnavailable = []string{"no such host", "OTSTunnelServerUnavailable"}
+var OtsSecondaryIndexIsTemporarilyUnavailable = []string{"no such host", "OTSServerUnavailable"}
+var OtsSearchIndexIsTemporarilyUnavailable = []string{"no such host", "OTSServerUnavailable"}
 
 // An Error represents a custom error for Terraform failure response
 type ProviderError struct {
@@ -95,7 +97,7 @@ func NotFoundError(err error) bool {
 	}
 
 	if e, ok := err.(*tea.SDKError); ok {
-		return *e.StatusCode == 404
+		return tea.IntValue(e.StatusCode) == 404 || regexp.MustCompile(NotFound).MatchString(tea.StringValue(e.Message))
 	}
 
 	if e, ok := err.(*errors.ServerError); ok {

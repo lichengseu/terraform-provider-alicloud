@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alibabacloud-go/tea/tea"
+
 	"github.com/aliyun/alibaba-cloud-sdk-go/services/vpc"
 	"github.com/aliyun/terraform-provider-alicloud/alicloud/connectivity"
 	"github.com/denverdino/aliyungo/common"
@@ -382,7 +384,12 @@ func dataSourceAlicloudCSKubernetesClustersRead(d *schema.ResourceData, meta int
 
 func csKubernetesClusterDescriptionAttributes(d *schema.ResourceData, clusterTypes []cs.KubernetesCluster, meta interface{}) error {
 	client := meta.(*connectivity.AliyunClient)
-	csService := CsService{client}
+	roaClient, err := client.NewRoaCsClient()
+	if err != nil {
+		return WrapError(err)
+	}
+
+	csClient := CsClient{roaClient}
 	invoker := NewInvoker()
 
 	detailEnabled := false
@@ -662,22 +669,23 @@ func csKubernetesClusterDescriptionAttributes(d *schema.ResourceData, clusterTyp
 			mapping["nat_gateway_id"] = nat.NatGateways.NatGateway[0].NatGatewayId
 		}
 
-		// kube_config
-		var kubeConfig *cs.ClusterConfig
-		filePath := fmt.Sprintf("%s-kubeconfig", ct.ClusterID)
-		if kubeConfig, err = csService.DescribeClusterKubeConfig(ct.ClusterID, false); err != nil {
-			return WrapError(err)
-		}
-		if filePrefix, ok := d.GetOk("kube_config_file_prefix"); ok && filePrefix.(string) != "" {
-			filePath = fmt.Sprintf("%s-%s-kubeconfig", filePrefix.(string), ct.ClusterID)
-		}
-		if err = writeToFile(filePath, kubeConfig.Config); err != nil {
-			return WrapErrorf(err, DataDefaultErrorMsg, "alicloud_cs_kubernetes_clusters", "write kubeconfig file", "")
-		}
-
 		ids = append(ids, ct.ClusterID)
 		names = append(names, ct.Name)
 		s = append(s, mapping)
+
+		// kube_config
+		if ct.State == "failed" {
+			continue
+		}
+		if v, ok := d.GetOk("kube_config_file_prefix"); ok && v.(string) != "" {
+			filePath := fmt.Sprintf("%s-%s-kubeconfig", v.(string), ct.ClusterID)
+			kubeConfig, err := csClient.DescribeClusterKubeConfigWithExpiration(ct.ClusterID, 0)
+			if err != nil {
+				return WrapErrorf(err, DataDefaultErrorMsg, "alicloud_cs_kubernetes_clusters", "DescribeClusterKubeConfigWithExpiration", AlibabaCloudSdkGoERROR)
+			}
+			writeToFile(filePath, tea.StringValue(kubeConfig.Config))
+		}
+
 	}
 
 	d.Set("ids", ids)
